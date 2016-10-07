@@ -4,13 +4,13 @@ newsarchiver: News Article Archival
 newsarchiver combines the [Facebook Graph
 API](https://developers.facebook.com/docs/graph-api) and the excellent
 [newspaper](http://newspaper.readthedocs.io/en/latest/) package to archive a
-media source's articles to a databse. Note that, since `newspaper` requires
+media source's articles to a database. Note that, since `newspaper` requires
 Python 3, so does this package.
 
 This particular marriage of APIs is designed to address the general absence of
 article archives across media outlets (and their RSS feeds). The Facebook
 Graph API provides historical article data by collecting urls from a given
-website's offical feed, and `newspaper` scrapes the resulting article's
+website's official feed, and `newspaper` scrapes the resulting article's
 contents.
 
 Obviously, this limits us to the subset of articles that are posted on
