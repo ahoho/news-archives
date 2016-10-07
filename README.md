@@ -8,18 +8,17 @@ media source's articles to a database. Note that, since `newspaper` requires
 Python 3, so does this package.
 
 This particular marriage of APIs is designed to address the general absence of
-article archives across media outlets (and their RSS feeds). The Facebook
-Graph API provides historical article data by collecting urls from a given
-website's official feed, and `newspaper` scrapes the resulting article's
-contents.
+article archives for online media outlets. The Facebook Graph API allows us to
+obtain historical article data by collecting urls from a given website's official
+feed, and `newspaper` scrapes the resulting article's contents.
 
 Obviously, this limits us to the subset of articles that are posted on
 Facebook, but the feed collection and article archival processes have
 deliberately been kept separate so that the latter accepts url lists derived
-via other means.
+via other means (e.g., RSS feeds).
 
 This package was created in the service of providing data for natural language
-processing analyses, in particular my analyses of partisan media sources.
+processing tasks, in particular my analyses of partisan media sources.
 
 ## Example
 ```python
@@ -44,7 +43,7 @@ archiver = NewsArchiver(sql_path)
 archiver.get_articles(chunksize=250)
 ```
 
-## Notes:
+## Notes
 
 As of now, the structure of this package is relatively fixed, but I intend to
 render it extensible in the future by creating base classes for
