@@ -55,7 +55,7 @@ class FBGraphCrawler(object):
                                           page_name=page_name,
                                           page_id=page_id) \
                                   .drop_duplicates() \
-                                  .to_sql('fb_posts', self.sql_engine,
+                                  .to_sql('fb_posts_20161012', self.sql_engine,
                                           if_exists='append', index=False)
 
     def collect_feed_posts(self, page_id, through_date=None, error_limit=30):
@@ -64,7 +64,7 @@ class FBGraphCrawler(object):
         continuing through the feed history until `through_date`
         """
 
-        params = {'fields': 'link,shares,created_time,type',
+        params = {'fields': 'id,link,shares,created_time,type',
                   'limit': '100'}
         self.errors['consecutive'] = 0
 
@@ -87,6 +87,7 @@ class FBGraphCrawler(object):
                     post_url = self.unshorten_url(post.get('link'), page_id)
 
                     parsed_post = {
+                        'post_id': post.get('id'),
                         'link': post_url,
                         'base_url': self.get_base_url(post_url),
                         'shares': post.get('shares', {}).get('count'),
@@ -116,7 +117,8 @@ class FBGraphCrawler(object):
                 self.log_error(page_id, reset=True)
                 return parsed_url
 
-            except (requests.ConnectionError, requests.TooManyRedirects) as error:
+            except (requests.ConnectionError, requests.TooManyRedirects,
+                    UnicodeError) as error:
                 self.log_error(page_id, error)
                 return None
 
@@ -135,7 +137,7 @@ class FBGraphCrawler(object):
         consecutive errors, stop querying
         """
         if error:
-            self.errors[page_id] += error
+            self.errors[page_id] += [error]
             self.errors['consecutive'] += 1
         if reset:
             self.errors['consecutive'] = 0

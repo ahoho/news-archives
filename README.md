@@ -1,7 +1,7 @@
-newsarchiver: News Article Archival
+newsarchives: News Article Archival
 -----------------------------------
 
-newsarchiver combines the [Facebook Graph
+newsarchives combines the [Facebook Graph
 API](https://developers.facebook.com/docs/graph-api) and the excellent
 [newspaper](http://newspaper.readthedocs.io/en/latest/) package to archive a
 media source's articles to a database. Note that, since `newspaper` requires
@@ -22,7 +22,8 @@ processing tasks, in particular my analyses of partisan media sources.
 
 ## Example
 ```python
-from newsarchiver import FBGraphCrawler, NewsArchiver
+from newsarchives.crawler import FBGraphCrawler
+from newsarchives.archiver import NewsArchiver
 
 app_id = 'my_app_id'
 app_secret = 'my_secret_key'

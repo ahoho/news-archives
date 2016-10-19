@@ -143,10 +143,11 @@ class NewsArchiver(object):
                 article_df.to_sql('articles', self.sql_engine,
                                   if_exists='append', index=None)
 
-    def get_articles(self, chunksize=None, threads_per_source=1):
+    def get_articles(self, chunksize=None, threads_per_source=1,
+                     retrieved_btw=None):
         """ Download articles from multiple sources in parallel """
 
-        pub_url_data = self.collect_url_data(chunksize=chunksize)
+        pub_url_data = self.collect_url_data(retrieved_btw=retrieved_btw, chunksize=chunksize)
 
         for df in pub_url_data:
             articlesets = self.build_articlesets(df)
