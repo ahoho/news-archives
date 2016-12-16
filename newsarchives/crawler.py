@@ -1,6 +1,7 @@
 import requests
 import time
 import logging
+import re
 from collections import defaultdict
 from urllib.parse import parse_qs, urlparse
 
@@ -14,7 +15,7 @@ class FBGraphCrawler(object):
         retrieves posts from their feeds """
 
     def __init__(self, access_token, sqldb, pages):
-        # although this depends on python-sdk, the facebook
+        # although this depends on facebook-sdk, the facebook
         # graph API is simple enough to use that, should this dependency cause
         # problems, requests alone is sufficient
         self.graph = fb.GraphAPI(access_token)
@@ -22,20 +23,17 @@ class FBGraphCrawler(object):
         self.sql_engine = create_engine(sqldb)
         self.errors = {page: [] for page in list(self.pages.values())}
 
-    def test_pages(self, page_names):
-        """ Make sure each page exits and get its static facebook id """
-        page_ids = defaultdict(str)
-
-        for page in page_names:
+    def test_pages(self, pages):
+        """ Make sure each page exits"""
+        for page_name, page_id in list(pages.items()):
             try:
-                page_ids[page] = self.graph.get_connections(page, '')\
-                                           .get('id')
-
+                self.graph.get_connections(page_id, '')
             except fb.GraphAPIError:
                 logging.warning(
-                    'Page for {} not found, removing from list'.format(page))
+                    'Page for {} not found, removing from list'.format(page_name))
+                pages.pop(page_name)
 
-        return page_ids
+        return pages
 
     def save_all_page_feeds(self, through_date=None):
         """ For each page, collect list of urls """
@@ -75,7 +73,7 @@ class FBGraphCrawler(object):
                 response = self.graph.get_connections(
                     page_id, 'posts', **params)
                 # reset consecutive error count if no error occurs
-                self.log_error(page_id, reset=True)
+                self.log_error(reset=True)
             except fb.GraphAPIError as error:
                 self.log_error(page_id, error)
                 continue
@@ -114,7 +112,7 @@ class FBGraphCrawler(object):
         if url:
             try:
                 parsed_url = requests.head(url, allow_redirects=True).url
-                self.log_error(page_id, reset=True)
+                self.log_error(reset=True)
                 return parsed_url
 
             except (requests.ConnectionError, requests.TooManyRedirects,
@@ -124,14 +122,14 @@ class FBGraphCrawler(object):
 
     def get_base_url(self, url):
         if url:
-            return urlparse(url).netloc
+            return re.sub('^www\\.', '', urlparse(url).netloc)
 
     def get_page_url(self, page):
         """ Get websites associated with each FB page """
         response = self.graph.get(page, params={'fields': 'website'})
         return response.get('website')
 
-    def log_error(self, page_id, error=None, reset=False):
+    def log_error(self, page_id=None, error=None, reset=False):
         """
         If either the facebook API or the urls yield too many
         consecutive errors, stop querying

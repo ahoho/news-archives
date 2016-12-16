@@ -12,20 +12,24 @@ class ArticleSet(Source):
     urls. Ducktyped to work with news_pool
     """
 
-    def __init__(self, article_urls, article_dates, pub_id, config=None, **kwargs):
-        self.config = config or Configuration()
-        self.article_urls = article_urls
-        self.article_dates = article_dates
-        self.pub_id = pub_id
+    def __init__(self, ids, urls, dates, site, config=None, **kwargs):
 
-    def create_article(self, url, date):
-        article = Article(url, fetch_images = False)
+        self.ids = ids
+        self.urls = urls
+        self.dates = dates
+        self.site = site
+        self.config = config or Configuration()
+
+    def create_article(self, id, url, date):
+        article = Article(url, fetch_images = False)        
+        article.id = id
         article.date = date
         return article
 
     def generate_articles(self):
-        self.articles = [self.create_article(url, date) for url, date in
-                         zip(self.article_urls, self.article_dates)]
+        self.articles = [self.create_article(id, url, date) 
+                         for id, url, date in
+                         zip(self.ids, self.urls, self.dates)]
 
     def download_articles(self, threads=1):
         """ Override superclass method to download AND parse articles """
@@ -40,57 +44,49 @@ class NewsArchiver(object):
     iterates through each article to collect text.
     """
 
-    def __init__(self, sqldb, publications=None):
+    def __init__(self, sqldb, sites=None, site_query=None):
         self.sql_engine = create_engine(sqldb)
-        self.publications = publications or self.collect_publications()
+        self.sites = sites or self.get_sites(site_query)
 
-    def collect_publications(self):
-        """ 
-        Get the distinct publications in the database and their
-        most associated urls (so as to only keep self-published articles
-        """
-        query = """SELECT page_id, page_name, base_url, count(*) as num_posts
-                   FROM fb_posts
-                   GROUP BY page_id, page_name, base_url"""
+    def get_sites(self, query):
+        """ Determine acceptable base_urls to collect using query """
+        if not query:
+            query = """
+                    SELECT base_url, page_id FROM fb_posts
+                    GROUP BY base_url, page_id
+                    """
 
-        pub_data = pd.read_sql(query, self.sql_engine)\
-                     .replace('^www\\.', '', regex=True)\
-                     .sort_values(['page_id', 'num_posts'], ascending=False)\
-                     .groupby('page_id')\
-                     .first()\
-                     .to_dict()['base_url']
-
-        return pub_data
+        return pd.read_sql(query, self.sql_engine)
 
     def collect_url_data(self, retrieved_btw=None, chunksize=None):
         """
         Create a dataframe generator, each with `chunksize` rows,
         which has equal numbers of articles from each source
 
-        Gett subsets of the data s.t. we have ArticleSets of equal sizes
-        when running news_pool on multiple threads.
-
-        The `GROUP BY` ensures no duplicates.
-
-        The below query is postgres specific, for other dialects,
-        a simple `ORDER BY created_time` can stand in for the `PARTITION`
+        Get subsets of the data s.t. we have ArticleSets of equal sizes
+        when running news_pool on multiple sources.
         """
 
         if not retrieved_btw:
-            retrieved_btw = {'start':'2000-01-01', 'end': '2020-01-01'}
+            retrieved_btw = {'start':'2000-01-01', 'end': '2024-01-01'}
         
         query = """
-                SELECT page_id, base_url, link, created_time 
-                FROM (SELECT page_id, base_url, link,
-                             min(created_time) as created_time, ROW_NUMBER() 
-                      OVER (PARTITION BY page_id 
-                            ORDER BY min(created_time) DESC) AS Row_ID
-                      FROM fb_posts
-                      WHERE retrieved_on >= '{start}' and
-                            retrieved_on <= '{end}'
-                      GROUP BY page_id, base_url, link) AS A
-                ORDER BY Row_ID, page_id
-                """.format(**retrieved_btw)
+                SELECT post_id, base_url, page_id, link, created_time 
+                FROM (SELECT post_id, base_url, page_id, link, created_time, 
+                             ROW_NUMBER() OVER (PARTITION BY base_url 
+                                                ORDER BY created_time DESC) AS rownum
+                      FROM fb_posts fb
+                      WHERE date(retrieved_on) >= '{start}' and
+                            date(retrieved_on) <= '{end}' and
+                            page_id in ('{page_ids}') and 
+                            base_url in ('{base_urls}') and
+                            NOT EXISTS (SELECT 1 FROM articles a 
+                                        WHERE fb.post_id = a.post_id)
+                     ) AS article_set
+                ORDER BY rownum, page_id
+                """.format(page_ids="', '".join(self.sites.page_id),
+                           base_urls="', '".join(self.sites.base_url),
+                           **retrieved_btw)
 
         df = pd.read_sql(query, self.sql_engine, chunksize=chunksize)
 
@@ -106,12 +102,13 @@ class NewsArchiver(object):
         
         asets = []
         for page_id, page_df in df.groupby('page_id'):
-            is_site_url = page_df.base_url.str.contains(
-                                                   self.publications[page_id],
-                                                   na = False)
-            articleset = ArticleSet(page_df.link[is_site_url],
-                                    page_df.created_time[is_site_url],
-                                    page_id)
+            site_url = self.sites.base_url[self.sites.page_id == page_id].tolist()
+            is_site_url = page_df.base_url.isin(site_url)
+
+            articleset = ArticleSet(ids=page_df.post_id[is_site_url],
+                                    urls=page_df.link[is_site_url],
+                                    dates=page_df.created_time[is_site_url],
+                                    site=site_url)
 
             articleset.generate_articles()
             asets.append(articleset)
@@ -123,18 +120,18 @@ class NewsArchiver(object):
 
     def save_articles(self, articlesets):
         """ Read articles from a source and save them to a sql server """
-        # TODO: consider adding pk/fk to our tables
+
         cur_time = time.ctime()
 
         for articleset in articlesets:
-            page_id = articleset.pub_id
+            site = articleset.site
             article_df = pd.DataFrame.from_records(
-                                 [{'url': a.url,
-                                   'page_id': page_id,
-                                   'page_base_url': self.publications[page_id],
+                                 [{'post_id': a.id,
+                                   'url': a.url,
+                                   'base_url': ', '.join(site),
                                    'title': a.title,
                                    'authors': ', '.join(a.authors),
-                                   'text': a.text,
+                                   'article_text': a.text,
                                    'date': a.date,
                                    'retrieved_on': cur_time}
                                     for a in articleset.articles if a.text])
@@ -147,9 +144,10 @@ class NewsArchiver(object):
                      retrieved_btw=None):
         """ Download articles from multiple sources in parallel """
 
-        pub_url_data = self.collect_url_data(retrieved_btw=retrieved_btw, chunksize=chunksize)
+        site_url_data = self.collect_url_data(retrieved_btw=retrieved_btw,
+                                              chunksize=chunksize)
 
-        for df in pub_url_data:
+        for df in site_url_data:
             articlesets = self.build_articlesets(df)
             news_pool.set(articlesets, threads_per_source=threads_per_source)
             news_pool.join()
