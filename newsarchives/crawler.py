@@ -53,7 +53,7 @@ class FBGraphCrawler(object):
                                           page_name=page_name,
                                           page_id=page_id) \
                                   .drop_duplicates() \
-                                  .to_sql('fb_posts_20161012', self.sql_engine,
+                                  .to_sql('fb_posts', self.sql_engine,
                                           if_exists='append', index=False)
 
     def collect_feed_posts(self, page_id, through_date=None, error_limit=30):
@@ -100,7 +100,7 @@ class FBGraphCrawler(object):
 
             # continue through pages until `through_date` is hit
             # or no more pages exist
-            if next_page and parsed_post['created_time'] >= through_date:
+            if next_page and post.get('created_time') >= through_date:
                 # update params for next page
                 params = parse_qs(urlparse(next_page).query)
             else:
